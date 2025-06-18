@@ -1,7 +1,5 @@
 # 🎥 Beholder – Sistema de Detecção de Objetos Perigosos
 
-![Beholder Preview](./assets/screenshot.png)
-
 ## 🚀 Descrição
 
 Beholder é um programa em Python que detecta objetos perigosos em tempo real usando câmeras de segurança. Ideal para dar apoio extra à vigilância, emitindo alarmes sonoros assim que facas, armas ou comportamentos suspeitos são identificados.
