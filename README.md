@@ -45,7 +45,7 @@ Beholder é um programa em Python que detecta objetos perigosos em tempo real us
    ```bash
    pip install -r requirements.txt
 
-▶️ Como Executar
+## ▶️ Como Executar
    ```bash
    python beholder.py
 
