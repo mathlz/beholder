@@ -1,130 +1,137 @@
 import tkinter as tk
 from tkinter import filedialog
+from PIL import Image, ImageTk
 import cv2
-import time
+import torch
 import threading
 import winsound
-from inference_sdk import InferenceHTTPClient
-from PIL import Image, ImageTk
+from ultralytics import YOLO
+import time
+import pygame
 
-# --- Configuração do cliente Roboflow ---
-CLIENT = InferenceHTTPClient(
-    api_url="https://serverless.roboflow.com",
-    api_key="x18RThrdUZ2ElVFJvHMo"
-)
-MODEL_ID = "knife_hand_holding-knife-dataset-mwf2d/1"
+alarme_ativo = False  # Flag global para controle
 
+# Mapeamento de nomes das classes para rótulos personalizados
+CLASSES_PERSONALIZADAS = {
+    "knife": "Objeto Perigoso",
+    "slap": "Tapa",
+    "person": "Pessoa",
+    "weapon holding": "Empunhadura"
+}
 
-# --- Alarme sonoro ---
+# Inicializa o mixer do pygame
+pygame.mixer.init()
+
+def tocar_sirene_mp3():
+    global alarme_ativo
+    pygame.mixer.music.load("sirene.mp3")
+    pygame.mixer.music.play(-1)  # -1 = loop infinito
+    while alarme_ativo:
+        pygame.time.wait(100)  # Pequena pausa para não travar o loop
+
+def iniciar_alarme():
+    global alarme_ativo
+    if not alarme_ativo:
+        alarme_ativo = True
+        threading.Thread(target=tocar_sirene_mp3, daemon=True).start()
+
+def parar_alarme():
+    global alarme_ativo
+    alarme_ativo = False
+    pygame.mixer.music.stop()
+
+# Variável para evitar spam de alarme
+ultimo_alarme_time = 0
+
+# Carrega o modelo YOLOv8 treinado
+model = YOLO("best.pt")
+
+# Alarme sonoro
 def emitir_alarme():
-    duration = 500  # milissegundos
-    freq = 1000     # Hz
-    winsound.Beep(freq, duration)
+    global ultimo_alarme_time
+    current_time = time.time()
 
+    # Só emite se passou pelo menos 1 segundo desde o último alarme
+    if current_time - ultimo_alarme_time >= 1:
+        ultimo_alarme_time = current_time
 
-# --- Detectar em imagem ---
-def detectar_em_imagem():
-    file_path = filedialog.askopenfilename()
-    if file_path:
-        result = CLIENT.infer(file_path, model_id=MODEL_ID)
-        predictions = result.get("predictions", [])
+        def beep():
+            duration = 500  # milissegundos
+            freq = 1000     # Hz
+            winsound.Beep(freq, duration)
 
-        img = cv2.imread(file_path)
-        img = cv2.resize(img, (640, 640))
+        threading.Thread(target=beep, daemon=True).start()
 
-        for pred in predictions:
-            x = int(pred["x"])
-            y = int(pred["y"])
-            w = int(pred["width"])
-            h = int(pred["height"])
-            x1 = int(x - w / 2)
-            y1 = int(y - h / 2)
-            x2 = int(x + w / 2)
-            y2 = int(y + h / 2)
-            label = f'{pred["class"]} ({pred["confidence"]:.2f})'
-            cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.putText(img, label, (x1, y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+# Variável de controle para parar a webcam
+executando = False
 
-            if "knife" in pred["class"].lower() or "faca" in pred["class"].lower():
-                emitir_alarme()
-
-        cv2.imshow("Resultado da imagem", img)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-
-
-# --- Webcam ao vivo ---
+# Loop da webcam em thread
 def rodar_webcam():
+    global executando
+    executando = True
     cap = cv2.VideoCapture(0)
-    last_sent_time = 0
-    delay_seconds = 2
-    predictions = []
 
-    while True:
+    def atualizar_frame():
+        if not executando:
+            cap.release()
+            return
+
         ret, frame = cap.read()
-        if not ret:
-            break
+        if ret:
+            results = model(frame)[0]
+            for box in results.boxes:
+                cls_id = int(box.cls[0])
+                class_name = model.names[cls_id]
+                conf = float(box.conf[0])
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
 
-        resized_frame = cv2.resize(frame, (640, 640))
-        current_time = time.time()
+                classe_traduzida = CLASSES_PERSONALIZADAS.get(class_name.lower(), class_name)
+                label = f"{classe_traduzida} ({conf:.2f})"
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(frame, label, (x1, y1 - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-        if current_time - last_sent_time > delay_seconds:
-            cv2.imwrite("temp.jpg", resized_frame)
-            result = CLIENT.infer("temp.jpg", model_id=MODEL_ID)
-            predictions = result.get("predictions", [])
-            last_sent_time = current_time
-
-            for pred in predictions:
-                if pred["class"].lower() == "faca" or "knife" in pred["class"].lower():
+                if "faca" in class_name.lower() or "knife" in class_name.lower():
                     emitir_alarme()
-                    break
 
-        for pred in predictions:
-            x = int(pred["x"])
-            y = int(pred["y"])
-            w = int(pred["width"])
-            h = int(pred["height"])
-            x1 = int(x - w / 2)
-            y1 = int(y - h / 2)
-            x2 = int(x + w / 2)
-            y2 = int(y + h / 2)
-            label = f'{pred["class"]} ({pred["confidence"]:.2f})'
-            cv2.rectangle(resized_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.putText(resized_frame, label, (x1, y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            # Converte imagem para exibir no Tkinter
+            img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            img_pil = Image.fromarray(img_rgb)
+            img_tk = ImageTk.PhotoImage(img_pil)
+            video_label.config(image=img_tk)
+            video_label.image = img_tk
 
-        cv2.imshow("Detecção ao vivo", resized_frame)
+        root.after(30, atualizar_frame)
 
-        if cv2.waitKey(1) & 0xFF == 27:  # ESC
-            break
+    atualizar_frame()
 
-    cap.release()
-    cv2.destroyAllWindows()
+# Parar a webcam
+def parar_webcam():
+    global executando
+    executando = False
+    video_label.config(image='')
 
-
-# --- Função para rodar webcam em thread separada ---
-def iniciar_thread_webcam():
-    t = threading.Thread(target=rodar_webcam)
-    t.daemon = True
-    t.start()
-
-
-# --- Interface Gráfica (Tkinter) ---
+# Interface Gráfica
 root = tk.Tk()
-root.title("Deteccao de Facas com Roboflow")
-root.geometry("400x250")
+root.title("Detecção de Objetos Perigosos")
+root.geometry("700x600")
 
-titulo = tk.Label(root, text="Sistema de Detecção", font=("Arial", 16))
-titulo.pack(pady=20)
+titulo = tk.Label(root, text="Detecção de Objetos Perigosos", font=("Arial", 18))
+titulo.pack(pady=10)
 
-btn_webcam = tk.Button(root, text="Rodar Detecção com Webcam", command=iniciar_thread_webcam, width=30, height=2)
+btn_webcam = tk.Button(root, text="Abrir Câmera de Segurança", command=lambda: threading.Thread(target=rodar_webcam).start(), width=35, height=2)
 btn_webcam.pack(pady=5)
 
-btn_imagem = tk.Button(root, text="Analisar Imagem do Computador", command=detectar_em_imagem, width=30, height=2)
-btn_imagem.pack(pady=5)
+btn_parar = tk.Button(root, text="Fechar Câmera de Segurança", command=parar_webcam, width=35, height=2)
+btn_parar.pack(pady=5)
 
-btn_alarme = tk.Button(root, text="Tocar Alarme Manualmente", command=emitir_alarme, width=30, height=2)
+btn_alarme = tk.Button(root, text="Tocar Sirene", command=iniciar_alarme, width=30, height=2)
 btn_alarme.pack(pady=5)
+
+btn_parar = tk.Button(root, text="Parar Sirene", command=parar_alarme, width=30, height=2)
+btn_parar.pack(pady=5)
+
+video_label = tk.Label(root)
+video_label.pack(pady=10)
 
 root.mainloop()
