@@ -6,9 +6,9 @@ Beholder é um programa em Python que detecta objetos perigosos em tempo real us
 
 ---
 
-## ▶️ Como Executar
+## ▶️ Vídeo de Demonstração
 
-Vídeo de demonstração: 
+Disponível no seguinte link: 
 
 ---
 
