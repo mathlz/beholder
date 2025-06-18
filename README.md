@@ -32,3 +32,20 @@ Beholder é um programa em Python que detecta objetos perigosos em tempo real us
    ```bash
    git clone https://github.com/SEU_USUARIO/beholder.git
    cd beholder
+
+2. (Opcional) Crie e ative um ambiente virtual:
+   ```bash
+   python -m venv venv
+   # Windows
+   venv\Scripts\activate
+   # macOS / Linux
+   source venv/bin/activate
+
+3. Instale as dependências:
+   ```bash
+   pip install -r requirements.txt
+
+▶️ Como Executar
+   ```bash
+   python beholder.py
+
